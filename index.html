@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniTender - Permanent Real-Time</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui}
+body{background:#f5f7fb;padding:20px}
+.card{background:white;padding:20px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,0.1);margin-bottom:20px}
+.btn{background:#4f46e5;color:white;padding:10px 20px;border:none;border-radius:8px;cursor:pointer;margin:5px}
+.btn:hover{background:#4338ca}
+.input{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:8px}
+.notification{position:fixed;top:20px;right:20px;background:#10b981;color:white;padding:15px 20px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:1000;animation:slideIn 0.3s}
+@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.badge{background:#ef4444;color:white;padding:2px 8px;border-radius:12px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="card">
+<h2>🎓 UniTender - Permanent Real-Time System ✅</h2>
+<p id="status">Connecting...</p>
+<p>Backend: <span id="backendUrl"></span> | Connected Devices: <span id="deviceCount">0</span></p>
+</div>
+
+<div class="card">
+<h3>🔐 Login / Register</h3>
+<input class="input" id="name" placeholder="Name (for register)">
+<input class="input" id="email" placeholder="Email" value="admin@college.com">
+<input class="input" id="password" type="password" placeholder="Password" value="admin123">
+<select class="input" id="role"><option value="admin">Organization</option><option value="vendor">Vendor</option></select>
+<input class="input" id="company" placeholder="Company (for vendor)">
+<button class="btn" onclick="register()">Register</button>
+<button class="btn" onclick="login()">Login</button>
+<button class="btn" onclick="logout()">Logout</button>
+<p id="userInfo"></p>
+</div>
+
+<div class="card">
+<h3>📋 Vendors <span id="pendingBadge" class="badge" style="display:none">0 pending</span></h3>
+<div id="vendors"></div>
+</div>
+
+<div class="card">
+<h3>📄 Tenders</h3>
+<input class="input" id="tTitle" placeholder="Tender Title">
+<input class="input" id="tDesc" placeholder="Description">
+<input class="input" id="tBudget" placeholder="Budget" type="number">
+<button class="btn" onclick="createTender()">Create Tender</button>
+<div id="tenders" style="margin-top:15px"></div>
+</div>
+
+<div class="card">
+<h3>📱 How to Invite Others (Permanent Link):</h3>
+<p>1. Deploy backend to Render, get URL like https://unitender-backend.onrender.com</p>
+<p>2. Update BACKEND_URL below and redeploy frontend to Vercel</p>
+<p>3. Share Vercel link - works on any network worldwide!</p>
+<p><b>Current Backend:</b> <span id="currentBackend"></span></p>
+</div>
+
+<script>
+// PERMANENT BACKEND URL - CHANGE THIS AFTER RENDER DEPLOY
+const RENDER_BACKEND_URL = 'https://unitender-backend.onrender.com'; // <-- Yaha apna Render URL daalna
+
+// Auto-detect backend URL
+let BACKEND_URL;
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168')) {
+  BACKEND_URL = `http://${window.location.hostname}:5000`;
+} else {
+  BACKEND_URL = RENDER_BACKEND_URL;
+}
+
+document.getElementById('backendUrl').textContent = BACKEND_URL;
+document.getElementById('currentBackend').textContent = BACKEND_URL;
+
+let socket, token, currentUser;
+
+function connectSocket() {
+  socket = io(BACKEND_URL, { transports: ['websocket','polling'] });
+  
+  socket.on('connect', () => {
+    document.getElementById('status').innerHTML = '✅ Connected - Real-time Active 🔥';
+    document.getElementById('status').style.color = 'green';
+  });
+  
+  socket.on('connected', (data) => {
+    console.log('Connected:', data);
+  });
+  
+  socket.on('vendor_registered', (vendor) => {
+    showNotification(`🔥 New vendor: ${vendor.name} (${vendor.company}) registered!`);
+    loadVendors();
+  });
+  
+  socket.on('notification', (notif) => {
+    showNotification(notif.message);
+  });
+  
+  socket.on('vendor_approved', () => {
+    showNotification('✅ Vendor approved!');
+    loadVendors();
+  });
+  
+  socket.on('tender_created', (tender) => {
+    showNotification(`📄 New tender: ${tender.title}`);
+    loadTenders();
+  });
+  
+  socket.on('tender_updated', () => loadTenders());
+  socket.on('tender_deleted', () => loadTenders());
+  
+  socket.on('connect_error', (err) => {
+    document.getElementById('status').innerHTML = '❌ Not connected - ' + err.message + '<br>Make sure backend is running at ' + BACKEND_URL;
+    document.getElementById('status').style.color = 'red';
+  });
+}
+
+function showNotification(msg) {
+  const div = document.createElement('div');
+  div.className = 'notification';
+  div.textContent = msg;
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), 4000);
+  // Play sound if possible
+  try { new Audio('https://cdn.pixabay.com/download/audio/2021/08/04/audio_0625c8b9d2.mp3').play().catch(()=>{}); } catch(e){}
+}
+
+async function register() {
+  const body = {
+    name: document.getElementById('name').value,
+    email: document.getElementById('email').value,
+    password: document.getElementById('password').value,
+    role: document.getElementById('role').value,
+    company: document.getElementById('company').value
+  };
+  const res = await fetch(`${BACKEND_URL}/api/auth/register`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  const data = await res.json();
+  alert(data.message || data.error);
+  if (!data.error) loadVendors();
+}
+
+async function login() {
+  const res = await fetch(`${BACKEND_URL}/api/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ email: document.getElementById('email').value, password: document.getElementById('password').value }) });
+  const data = await res.json();
+  if (data.token) {
+    token = data.token;
+    currentUser = data.user;
+    document.getElementById('userInfo').textContent = `Logged in as ${currentUser.name} (${currentUser.role})`;
+    showNotification(`✅ Welcome ${currentUser.name}!`);
+    loadVendors(); loadTenders();
+  } else alert(data.error);
+}
+
+function logout() { token=null; currentUser=null; document.getElementById('userInfo').textContent='Logged out'; }
+
+async function loadVendors() {
+  const res = await fetch(`${BACKEND_URL}/api/vendors`);
+  const vendors = await res.json();
+  const pending = vendors.filter(v=>v.status==='pending');
+  document.getElementById('pendingBadge').style.display = pending.length ? 'inline' : 'none';
+  document.getElementById('pendingBadge').textContent = `${pending.length} pending`;
+  document.getElementById('vendors').innerHTML = vendors.map(v=>`
+    <div style="border:1px solid #eee;padding:10px;margin:5px 0;border-radius:8px">
+      <b>${v.name}</b> (${v.company}) - ${v.email} - Status: <b>${v.status}</b>
+      ${v.status==='pending' ? `<button class="btn" onclick="approveVendor('${v.id}')">Approve</button><button class="btn" style="background:#ef4444" onclick="rejectVendor('${v.id}')">Reject</button>` : ''}
+    </div>
+  `).join('');
+}
+
+async function approveVendor(id) {
+  await fetch(`${BACKEND_URL}/api/vendors/${id}/approve`, { method:'POST' });
+  loadVendors();
+}
+
+async function rejectVendor(id) {
+  await fetch(`${BACKEND_URL}/api/vendors/${id}/reject`, { method:'POST' });
+  loadVendors();
+}
+
+async function loadTenders() {
+  const res = await fetch(`${BACKEND_URL}/api/tenders`);
+  const tenders = await res.json();
+  document.getElementById('tenders').innerHTML = tenders.map(t=>`
+    <div style="border:1px solid #eee;padding:10px;margin:5px 0;border-radius:8px">
+      <b>${t.title}</b> - ${t.budget} - ${t.status}<br>${t.description}
+    </div>
+  `).join('');
+}
+
+async function createTender() {
+  const body = { title: document.getElementById('tTitle').value, description: document.getElementById('tDesc').value, budget: document.getElementById('tBudget').value };
+  await fetch(`${BACKEND_URL}/api/tenders`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  document.getElementById('tTitle').value=''; document.getElementById('tDesc').value=''; document.getElementById('tBudget').value='';
+  loadTenders();
+}
+
+connectSocket();
+loadVendors();
+loadTenders();
+</script>
+</body>
+</html>
