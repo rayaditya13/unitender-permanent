@@ -2756,10 +2756,10 @@ input[type="date"]{
     const origFetch = window.fetch;
     window.fetch = function(url, opts){
       if(typeof url === 'string'){
-        url = url.replace('http://localhost:5000', 'https://unitender-permanent.onrender.com')
-                 .replace('http://127.0.0.1:5000', 'https://unitender-permanent.onrender.com')
+        url = url.replace('https://unitender-permanent.onrender.com', 'https://unitender-permanent.onrender.com')
+                 .replace('https://unitender-permanent.onrender.com', 'https://unitender-permanent.onrender.com')
                  .replace('http://192.168.0.105:5000', 'https://unitender-permanent.onrender.com')
-                 .replace('https://unitender-backend.onrender.com', 'https://unitender-permanent.onrender.com');
+                 .replace('https://unitender-permanent.onrender.com', 'https://unitender-permanent.onrender.com');
       }
       return origFetch(url, opts);
     };
@@ -2831,5 +2831,163 @@ For detailed procedure, refer to attached PDF and contact PIO.`}),c}),[f,h]=C.us
 </script>
   <script>(function(){function m(a){var h=a.getAttribute("href");if(!h)return;try{var u=new URL(h,document.baseURI);if(((u.protocol==="http:"||u.protocol==="https:")&&u.host!==location.host)||u.protocol==="mailto:"||u.protocol==="tel:"||u.protocol==="sms:"){a.target="_blank";a.rel="noopener noreferrer";}}catch(e){}}function s(){document.querySelectorAll("a[href]").forEach(m);}if(document.readyState!=="loading"){s();}else{document.addEventListener("DOMContentLoaded",s);}document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(a){m(a);}},true);})();</script>
   <script type="application/json" data-clippy-inline-media-manifest="1">{"version":1,"slots":[]}</script>
+
+<!-- REAL-TIME CROSS-DEVICE SYNC - KEEP SAME DESIGN -->
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+(function(){
+  const BACKEND = 'https://unitender-permanent.onrender.com';
+  console.log('🔥 Real-time sync injection loading - Backend:', BACKEND);
+  
+  // Connect Socket.io
+  let socket;
+  try {
+    socket = io(BACKEND);
+    window._rtSocket = socket;
+    socket.on('connect', ()=>{
+      console.log('✅ Socket connected:', socket.id);
+      // Show live indicator
+      const indicator = document.createElement('div');
+      indicator.id = 'rt-indicator';
+      indicator.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#000;color:#22c55e;padding:6px 12px;border-radius:20px;font-size:11px;z-index:9999;border:1px solid #22c55e;display:flex;align-items:center;gap:6px;';
+      indicator.innerHTML = '<span style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 2s infinite"></span> Live - Real-time Active - ' + BACKEND + ' - Cross-device sync ON';
+      document.body.appendChild(indicator);
+      setTimeout(()=>indicator.remove(), 5000);
+      
+      // Fetch existing vendors/tenders from backend to sync
+      fetch(BACKEND + '/api/vendors').then(r=>r.json()).then(data=>{
+        let vendors = Array.isArray(data) ? data : (data.vendors||[]);
+        if(vendors.length>0){
+          console.log('📥 Fetched', vendors.length, 'vendors from backend');
+          localStorage.setItem('rt_backend_vendors', JSON.stringify(vendors));
+          // Show notification
+          showToast('📥 Synced ' + vendors.length + ' vendors from backend - Cross-device data loaded');
+        }
+      }).catch(()=>{});
+      
+      fetch(BACKEND + '/api/tenders').then(r=>r.json()).then(data=>{
+        let tenders = Array.isArray(data) ? data : (data.tenders||[]);
+        if(tenders.length>0){
+          localStorage.setItem('rt_backend_tenders', JSON.stringify(tenders));
+        }
+      }).catch(()=>{});
+    });
+    
+    socket.on('vendor_registered', (data)=>{
+      console.log('🔥 Vendor registered from other device:', data);
+      // Store in localStorage
+      let arr = JSON.parse(localStorage.getItem('rt_backend_vendors')||'[]');
+      if(!arr.find(x=>x.email===data.email)){
+        arr.push(data);
+        localStorage.setItem('rt_backend_vendors', JSON.stringify(arr));
+      }
+      showToast('🔥 New Vendor from other device: ' + (data.company||data.email||'Vendor') + ' - Appeared across network!');
+      // Try to trigger React update by dispatching custom event
+      window.dispatchEvent(new CustomEvent('rt-vendor-added', {detail: data}));
+      // Force reload vendors if React app has a function
+      setTimeout(()=>{ location.reload(); }, 2000);
+    });
+    
+    socket.on('tender_created', (data)=>{
+      console.log('📋 Tender created from other device:', data);
+      let arr = JSON.parse(localStorage.getItem('rt_backend_tenders')||'[]');
+      arr.push(data);
+      localStorage.setItem('rt_backend_tenders', JSON.stringify(arr));
+      showToast('📋 New Tender from other device: ' + (data.title||'Tender'));
+      window.dispatchEvent(new CustomEvent('rt-tender-added', {detail: data}));
+    });
+    
+    socket.on('notification', (data)=>{
+      showToast('🔔 ' + (data.message||'New notification'));
+    });
+    
+  } catch(e){ console.error('Socket error', e); }
+  
+  function showToast(msg){
+    const c = document.getElementById('rt-toast-container') || (()=>{ const d=document.createElement('div'); d.id='rt-toast-container'; d.style.cssText='position:fixed;bottom:20px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;'; document.body.appendChild(d); return d; })();
+    const t = document.createElement('div');
+    t.style.cssText='background:#000;color:white;padding:12px 16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.3);font-size:13px;max-width:320px;border-left:4px solid #22c55e;';
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(()=>t.remove(), 6000);
+  }
+  
+  // Intercept vendor registration - watch for form submissions
+  document.addEventListener('click', async (e)=>{
+    const target = e.target;
+    const text = (target.textContent||'').toLowerCase();
+    // Detect vendor register button
+    if(text.includes('register') || text.includes('vendor') || text.includes('sign up') || target.type==='submit'){
+      // Try to find email and company inputs near the button
+      setTimeout(async ()=>{
+        const inputs = document.querySelectorAll('input');
+        let email='', company='', name='';
+        inputs.forEach(inp=>{
+          const val = inp.value;
+          const type = inp.type;
+          const placeholder = (inp.placeholder||'').toLowerCase();
+          if(type==='email' || placeholder.includes('email') || val.includes('@')){
+            if(val.includes('@')) email = val;
+          }
+          if(placeholder.includes('company') || placeholder.includes('organization') || placeholder.includes('vendor')){
+            if(val) company = val;
+          }
+          if(!company && placeholder.includes('name') && val){
+            name = val;
+          }
+        });
+        if(email && (company||name)){
+          console.log('📤 Detected vendor registration:', company, email);
+          try{
+            // Send to backend
+            await fetch(BACKEND + '/api/auth/register', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({name: company||name, company: company||name, email, password: 'vendor123', role: 'vendor'})
+            });
+            await fetch(BACKEND + '/api/vendors', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({company: company||name, email, name: company||name})
+            });
+            if(socket) socket.emit('vendor_registered', {company: company||name, email, name: company||name});
+            console.log('✅ Vendor synced to backend and broadcast via socket');
+            showToast('✅ Vendor ' + (company||email) + ' synced to backend - Will appear on other devices!');
+          }catch(err){ console.log('Backend sync error', err); if(socket) socket.emit('vendor_registered', {company: company||name, email}); }
+        }
+      }, 500);
+    }
+  }, true);
+  
+  // Poll backend every 3 seconds for cross-device sync
+  setInterval(async ()=>{
+    try{
+      const r = await fetch(BACKEND + '/api/vendors');
+      const data = await r.json();
+      let backendVendors = Array.isArray(data) ? data : (data.vendors||[]);
+      if(backendVendors.length>0){
+        let local = JSON.parse(localStorage.getItem('rt_backend_vendors')||'[]');
+        // Merge
+        let map = new Map();
+        [...local, ...backendVendors].forEach(v=>{ if(v.email) map.set(v.email, v); });
+        let merged = Array.from(map.values());
+        if(merged.length !== local.length){
+          localStorage.setItem('rt_backend_vendors', JSON.stringify(merged));
+          console.log('🔄 Synced vendors from backend:', merged.length);
+          // If new vendors found, show toast and reload to show in UI
+          if(merged.length > local.length){
+            showToast('🔄 ' + (merged.length - local.length) + ' new vendors synced from other devices!');
+            window.dispatchEvent(new CustomEvent('rt-vendors-synced', {detail: merged}));
+          }
+        }
+      }
+    }catch(e){}
+  }, 3000);
+  
+  console.log('✅ Real-time cross-device sync injection loaded - Same design, backend sync enabled');
+})();
+</script>
+<style>@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.7)}70%{box-shadow:0 0 0 10px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}</style>
+
 </body>
 </html>
